@@ -153,6 +153,11 @@ func (s *Store) Commit(_ context.Context, request CommitRequest) (*CommitResult,
 	if request.Batch == nil || request.Operation == "" {
 		return nil, domain.Invalid("commit", "提交缺少批次或操作名")
 	}
+	// 在开始新提交前，先恢复或隔离上一次未完成的提交。否则待重试可能与同序号的不同
+	// 内容混淆，并在内存状态落后于已落盘审计日志时让新提交静默复用序号。
+	if err := s.reconcilePending(); err != nil {
+		return nil, err
+	}
 	if request.IdempotencyKey != "" {
 		if record, ok := s.idempotency[request.IdempotencyKey]; ok {
 			var recorded domain.ReviewBatch
@@ -207,11 +212,61 @@ func (s *Store) Commit(_ context.Context, request CommitRequest) (*CommitResult,
 		return nil, err
 	}
 	if err := applyPending(s.dir, pending); err != nil {
+		// 提交未完整发布：审计日志可能已先于快照/幂等记录落盘，导致内存中的序号与
+		// 哈希落后于磁盘。这里把内存审计链状态重新同步到磁盘真实状态，避免下一次提交
+		// 基于过期序号重新生成同序号但内容不同的审计记录。未完成的待恢复意图由下一次
+		// 提交或重启时的恢复逻辑处理。
+		s.resyncAuditChain()
 		return nil, fmt.Errorf("应用持久化提交：%w", err)
 	}
 	s.batches[copy.ID], s.idempotency, s.sequence, s.lastHash = copy, newIdempotency, seq, previous
 	result, _ := cloneBatch(copy)
 	return &CommitResult{Batch: result}, nil
+}
+
+// reconcilePending 在开始新提交前处理上一次未完成的提交意图。若存在待恢复的
+// pending-commit.json，则先尝试完整重放该提交；重放成功后再从磁盘重新装载快照、
+// 幂等记录与审计链状态，确保内存与磁盘一致。若重放仍失败，则拒绝新提交以隔离未
+// 完成的提交，避免被后续重试覆盖或与同序号的不同内容混淆。
+func (s *Store) reconcilePending() error {
+	if _, err := os.Stat(filepath.Join(s.dir, pendingFileName)); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var pending pendingCommit
+	if err := readJSON(filepath.Join(s.dir, pendingFileName), &pending); err != nil {
+		return fmt.Errorf("读取未完成提交：%w", err)
+	}
+	if err := applyPending(s.dir, pending); err != nil {
+		return fmt.Errorf("恢复未完成提交：%w", err)
+	}
+	s.batches = map[string]*domain.ReviewBatch{}
+	s.idempotency = map[string]idempotencyRecord{}
+	sequence, hash, err := scanAudit(filepath.Join(s.dir, "audit.jsonl"))
+	if err != nil {
+		return err
+	}
+	s.sequence, s.lastHash = sequence, hash
+	if err := s.loadSnapshots(); err != nil {
+		return err
+	}
+	if err := s.loadIdempotency(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// resyncAuditChain 在提交未完整发布后，把内存中的审计链序号与摘要重新对齐到磁盘
+// 真实状态，使后续提交不会基于过期的序号生成与磁盘已存在记录同序号但内容不同的
+// 审计记录。
+func (s *Store) resyncAuditChain() {
+	sequence, hash, err := scanAudit(filepath.Join(s.dir, "audit.jsonl"))
+	if err != nil {
+		return
+	}
+	s.sequence, s.lastHash = sequence, hash
 }
 
 func (s *Store) Close() error { s.mu.Lock(); defer s.mu.Unlock(); s.closed = true; return nil }
