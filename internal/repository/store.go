@@ -141,7 +141,7 @@ func (s *Store) Idempotent(_ context.Context, key string) (*CommitResult, bool) 
 	if err := json.Unmarshal(record.Batch, &recorded); err != nil {
 		return nil, false
 	}
-	return &CommitResult{Batch: &recorded}, true
+	return &CommitResult{Batch: &recorded, ActorID: record.ActorID, Role: record.Role}, true
 }
 
 func (s *Store) Commit(_ context.Context, request CommitRequest) (*CommitResult, error) {
@@ -159,7 +159,15 @@ func (s *Store) Commit(_ context.Context, request CommitRequest) (*CommitResult,
 			if err := json.Unmarshal(record.Batch, &recorded); err != nil {
 				return nil, err
 			}
-			return &CommitResult{Batch: &recorded}, nil
+			// 同一 IdempotencyKey 的并发重放必须在仓储层再次校验授权者，
+			// 防止 existing() 与 commit() 之间另一请求先写入后，越权者复用其结果。
+			if record.ActorID == "" && record.Role == "" {
+				return nil, domain.ErrForbidden
+			}
+			if record.ActorID != request.ActorID || record.Role != request.Role {
+				return nil, domain.ErrForbidden
+			}
+			return &CommitResult{Batch: &recorded, ActorID: record.ActorID, Role: record.Role}, nil
 		}
 	}
 	current := s.batches[request.Batch.ID]
@@ -200,7 +208,7 @@ func (s *Store) Commit(_ context.Context, request CommitRequest) (*CommitResult,
 		if marshalErr != nil {
 			return nil, marshalErr
 		}
-		newIdempotency[request.IdempotencyKey] = idempotencyRecord{BatchID: copy.ID, Version: copy.Version, Batch: stored}
+		newIdempotency[request.IdempotencyKey] = idempotencyRecord{BatchID: copy.ID, Version: copy.Version, ActorID: request.ActorID, Role: request.Role, Batch: stored}
 	}
 	pending := pendingCommit{SchemaVersion: schemaVersion, BatchID: copy.ID, Snapshot: envelope, AuditRecords: records, Idempotency: idempotencyFile{SchemaVersion: schemaVersion, Results: newIdempotency}}
 	if err := stageCommit(s.dir, pending); err != nil {

@@ -8,7 +8,10 @@ import (
 )
 
 func (s *Service) Resolve(ctx context.Context, cmd ResolveCommand) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "dispute.resolve", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "dispute.resolve", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "reviewer"); err != nil {
@@ -43,7 +46,7 @@ func (s *Service) Resolve(ctx context.Context, cmd ResolveCommand) (*domain.Revi
 	if err := batch.ResolveDisputeWithTask(cmd.DisputeID, cmd.ReviewerID, cmd.Resolution, s.ids("adjudication"), taskID, submissionID, eventIDs, s.now()); err != nil {
 		return nil, err
 	}
-	return s.commit(ctx, batch, cmd.ExpectedVersion, "dispute.resolve", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "dispute.resolve", cmd.IdempotencyKey, cmd.Metadata)
 }
 
 func batchClipID(batch *domain.ReviewBatch, disputeID string) string {

@@ -110,7 +110,10 @@ func (s *Service) VerifyManifest(ctx context.Context, batchID string, meta Metad
 }
 
 func (s *Service) CheckQuality(ctx context.Context, cmd BatchCommand) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "quality.check", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "quality.check", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "reviewer", "release_manager"); err != nil {
@@ -125,11 +128,14 @@ func (s *Service) CheckQuality(ctx context.Context, cmd BatchCommand) (*domain.R
 	}
 	report := s.checker.Check(batch, s.now())
 	batch.TouchQuality(report, s.now())
-	return s.commit(ctx, batch, cmd.ExpectedVersion, "quality.check", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "quality.check", cmd.IdempotencyKey, cmd.Metadata)
 }
 
 func (s *Service) Release(ctx context.Context, cmd ReleaseCommand) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "batch.release", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "batch.release", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "release_manager"); err != nil {
@@ -161,5 +167,5 @@ func (s *Service) Release(ctx context.Context, cmd ReleaseCommand) (*domain.Revi
 	if err := batch.Seal(manifest, s.now()); err != nil {
 		return nil, err
 	}
-	return s.commit(ctx, batch, cmd.ExpectedVersion, "batch.release", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "batch.release", cmd.IdempotencyKey, cmd.Metadata)
 }

@@ -7,7 +7,10 @@ import (
 )
 
 func (s *Service) SaveDraft(ctx context.Context, cmd DraftCommand) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "annotation.draft", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "annotation.draft", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "annotator"); err != nil {
@@ -34,11 +37,14 @@ func (s *Service) SaveDraft(ctx context.Context, cmd DraftCommand) (*domain.Revi
 	if err := batch.SaveDraft(cmd.SubmissionID, cmd.ClipID, cmd.AnnotatorID, cmd.Round, cmd.Events, cmd.RevisionReason, s.now()); err != nil {
 		return nil, err
 	}
-	return s.commit(ctx, batch, cmd.ExpectedVersion, "annotation.draft", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "annotation.draft", cmd.IdempotencyKey, cmd.Metadata)
 }
 
 func (s *Service) Submit(ctx context.Context, cmd SubmitCommand) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "annotation.submit", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "annotation.submit", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "annotator"); err != nil {
@@ -61,5 +67,5 @@ func (s *Service) Submit(ctx context.Context, cmd SubmitCommand) (*domain.Review
 			return nil, err
 		}
 	}
-	return s.commit(ctx, batch, cmd.ExpectedVersion, "annotation.submit", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "annotation.submit", cmd.IdempotencyKey, cmd.Metadata)
 }

@@ -48,5 +48,7 @@ type idempotencyFile struct {
 type idempotencyRecord struct {
 	BatchID string          `json:"batchId"`
 	Version uint64          `json:"version"`
+	ActorID string          `json:"actorId,omitempty"`
+	Role    string          `json:"role,omitempty"`
 	Batch   json.RawMessage `json:"batch"`
 }

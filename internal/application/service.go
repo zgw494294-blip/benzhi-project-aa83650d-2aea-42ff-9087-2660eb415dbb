@@ -52,24 +52,37 @@ func authorize(meta Metadata, roles ...string) error {
 	return domain.ErrForbidden
 }
 
-func (s *Service) existing(ctx context.Context, operation string, meta Metadata) (*domain.ReviewBatch, bool) {
+func (s *Service) existing(ctx context.Context, operation string, meta Metadata) (*domain.ReviewBatch, error, bool) {
 	if meta.IdempotencyKey == "" {
-		return nil, false
+		return nil, nil, false
 	}
 	result, ok := s.repo.Idempotent(ctx, operation+":"+meta.IdempotencyKey)
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
-	return result.Batch, true
+	if !sameActor(result.ActorID, result.Role, meta) {
+		return nil, domain.ErrForbidden, true
+	}
+	return result.Batch, nil, true
 }
 
-func (s *Service) commit(ctx context.Context, batch *domain.ReviewBatch, expected uint64, operation, key string) (*domain.ReviewBatch, error) {
+// sameActor 判断当前请求是否与持久化幂等结果原始授权者一致。
+// 持久化记录缺失 actor 信息（例如旧版本写入）时按 owner 字段非空且完全匹配判定，
+// 避免历史记录因迁移而退化为可被任意身份重放。
+func sameActor(recordedActor, recordedRole string, meta Metadata) bool {
+	if recordedActor == "" && recordedRole == "" {
+		return false
+	}
+	return recordedActor == meta.ActorID && recordedRole == meta.Role
+}
+
+func (s *Service) commit(ctx context.Context, batch *domain.ReviewBatch, expected uint64, operation, key string, meta Metadata) (*domain.ReviewBatch, error) {
 	events := batch.DrainEvents()
 	persistenceKey := ""
 	if key != "" {
 		persistenceKey = operation + ":" + key
 	}
-	result, err := s.repo.Commit(ctx, repository.CommitRequest{Batch: batch, ExpectedVersion: expected, Operation: operation, IdempotencyKey: persistenceKey, Events: events, CommittedAt: s.now()})
+	result, err := s.repo.Commit(ctx, repository.CommitRequest{Batch: batch, ExpectedVersion: expected, Operation: operation, IdempotencyKey: persistenceKey, ActorID: meta.ActorID, Role: meta.Role, Events: events, CommittedAt: s.now()})
 	if err != nil {
 		return nil, err
 	}

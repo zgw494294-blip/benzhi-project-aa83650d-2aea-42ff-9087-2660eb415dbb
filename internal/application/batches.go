@@ -7,7 +7,10 @@ import (
 )
 
 func (s *Service) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "batch.create", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "batch.create", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "manager"); err != nil {
@@ -18,11 +21,14 @@ func (s *Service) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (*dom
 	if err != nil {
 		return nil, err
 	}
-	return s.commit(ctx, batch, 0, "batch.create", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, 0, "batch.create", cmd.IdempotencyKey, cmd.Metadata)
 }
 
 func (s *Service) ConfigureScope(ctx context.Context, cmd ConfigureScopeCommand) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "batch.configure", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "batch.configure", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "manager"); err != nil {
@@ -35,11 +41,14 @@ func (s *Service) ConfigureScope(ctx context.Context, cmd ConfigureScopeCommand)
 	if err := batch.ConfigureScope(cmd.Title, cmd.SiteCode, cmd.RecordingStart, cmd.RecordingEnd, cmd.AllowedSpeciesCodes, s.now()); err != nil {
 		return nil, err
 	}
-	return s.commit(ctx, batch, cmd.ExpectedVersion, "batch.configure", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "batch.configure", cmd.IdempotencyKey, cmd.Metadata)
 }
 
 func (s *Service) AddClip(ctx context.Context, cmd AddClipCommand) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "clip.add", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "clip.add", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "manager"); err != nil {
@@ -56,11 +65,14 @@ func (s *Service) AddClip(ctx context.Context, cmd AddClipCommand) (*domain.Revi
 	if err := batch.AddClip(clip, s.now()); err != nil {
 		return nil, err
 	}
-	return s.commit(ctx, batch, cmd.ExpectedVersion, "clip.add", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "clip.add", cmd.IdempotencyKey, cmd.Metadata)
 }
 
 func (s *Service) BulkRegisterClips(ctx context.Context, cmd BulkRegisterClipsCommand) (*BulkRegisterClipsResult, error) {
-	if existing, ok := s.existing(ctx, "clip.bulk_register", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "clip.bulk_register", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return &BulkRegisterClipsResult{Batch: existing, AddedCount: len(cmd.Clips)}, nil
 	}
 	if err := authorize(cmd.Metadata, "manager"); err != nil {
@@ -84,7 +96,7 @@ func (s *Service) BulkRegisterClips(ctx context.Context, cmd BulkRegisterClipsCo
 	if err := batch.AddClips(clips, s.now()); err != nil {
 		return nil, err
 	}
-	committed, err := s.commit(ctx, batch, cmd.ExpectedVersion, "clip.bulk_register", cmd.IdempotencyKey)
+	committed, err := s.commit(ctx, batch, cmd.ExpectedVersion, "clip.bulk_register", cmd.IdempotencyKey, cmd.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +104,10 @@ func (s *Service) BulkRegisterClips(ctx context.Context, cmd BulkRegisterClipsCo
 }
 
 func (s *Service) RemoveClip(ctx context.Context, cmd BatchCommand, clipID string) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "clip.remove", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "clip.remove", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "manager"); err != nil {
@@ -105,11 +120,14 @@ func (s *Service) RemoveClip(ctx context.Context, cmd BatchCommand, clipID strin
 	if err := batch.RemoveClip(clipID, s.now()); err != nil {
 		return nil, err
 	}
-	return s.commit(ctx, batch, cmd.ExpectedVersion, "clip.remove", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "clip.remove", cmd.IdempotencyKey, cmd.Metadata)
 }
 
 func (s *Service) Freeze(ctx context.Context, cmd BatchCommand) (*domain.ReviewBatch, error) {
-	if existing, ok := s.existing(ctx, "batch.freeze", cmd.Metadata); ok {
+	if existing, err, ok := s.existing(ctx, "batch.freeze", cmd.Metadata); ok {
+		if err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if err := authorize(cmd.Metadata, "manager"); err != nil {
@@ -122,5 +140,5 @@ func (s *Service) Freeze(ctx context.Context, cmd BatchCommand) (*domain.ReviewB
 	if err := batch.Freeze(s.now()); err != nil {
 		return nil, err
 	}
-	return s.commit(ctx, batch, cmd.ExpectedVersion, "batch.freeze", cmd.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "batch.freeze", cmd.IdempotencyKey, cmd.Metadata)
 }

@@ -12,12 +12,16 @@ type CommitRequest struct {
 	ExpectedVersion uint64
 	Operation       string
 	IdempotencyKey  string
+	ActorID         string
+	Role            string
 	Events          []domain.DomainEvent
 	CommittedAt     time.Time
 }
 
 type CommitResult struct {
-	Batch *domain.ReviewBatch `json:"batch"`
+	Batch   *domain.ReviewBatch `json:"batch"`
+	ActorID string             `json:"actorId,omitempty"`
+	Role    string             `json:"role,omitempty"`
 }
 
 type Repository interface {
