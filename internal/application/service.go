@@ -76,12 +76,15 @@ func (s *Service) commit(ctx context.Context, batch *domain.ReviewBatch, expecte
 	if err != nil {
 		return nil, err
 	}
+	// 提交成功后丢弃该批次的查询投影缓存，确保下一次读取拿到最新已提交版本与事件内容。
+	s.invalidateViews(batch.ID)
 	return result.Batch, nil
 }
 
 func (s *Service) GetBatch(ctx context.Context, id, viewer, role string) (*BatchView, error) {
+	cacheKey := id + "\x00" + viewer + "\x00" + role
 	s.viewMu.Lock()
-	if cached := s.views[id]; cached != nil {
+	if cached := s.views[cacheKey]; cached != nil {
 		s.viewMu.Unlock()
 		return cached, nil
 	}
@@ -104,9 +107,22 @@ func (s *Service) GetBatch(ctx context.Context, id, viewer, role string) (*Batch
 	}
 	view := &BatchView{Batch: batch, Submissions: batch.VisibleSubmissions(viewer, role), OpenQueue: batch.OpenDisputes(), ReannotationTasks: tasks, ReannotationProgress: progress}
 	s.viewMu.Lock()
-	s.views[id] = view
+	s.views[cacheKey] = view
 	s.viewMu.Unlock()
 	return view, nil
+}
+
+// invalidateViews 丢弃指定批次的全部身份投影缓存。写命令提交成功后调用，
+// 防止后续读取返回提交前的版本或事件内容。
+func (s *Service) invalidateViews(batchID string) {
+	prefix := batchID + "\x00"
+	s.viewMu.Lock()
+	for key := range s.views {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.views, key)
+		}
+	}
+	s.viewMu.Unlock()
 }
 
 func (s *Service) ListBatches(ctx context.Context) ([]*domain.ReviewBatch, error) {
