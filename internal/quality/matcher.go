@@ -4,17 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 
 	"acousticverdictworkbench/internal/domain"
 )
 
 type Matcher struct {
 	Threshold float64
-	cache     map[string][]domain.DisputeCase
+	cache     *sync.Map
 }
 
 func NewMatcher() Matcher {
-	return Matcher{Threshold: 0.5, cache: make(map[string][]domain.DisputeCase)}
+	return Matcher{Threshold: 0.5, cache: &sync.Map{}}
 }
 
 type pair struct {
@@ -25,8 +26,8 @@ type pair struct {
 
 func (m Matcher) Match(clipID string, left, right domain.AnnotationSubmission, id func(string) string) []domain.DisputeCase {
 	key := matchCacheKey(clipID, left, right, m.Threshold)
-	if cached, ok := m.cache[key]; ok {
-		return cloneCases(cached)
+	if cached, ok := m.cache.Load(key); ok {
+		return cloneCases(cached.([]domain.DisputeCase))
 	}
 	pairs := make([]pair, 0)
 	for li, le := range left.Events {
@@ -81,8 +82,8 @@ func (m Matcher) Match(clipID string, left, right domain.AnnotationSubmission, i
 		}
 	}
 	sortCases(result)
-	m.cache[key] = cloneCases(result)
-	return result
+	stored, _ := m.cache.LoadOrStore(key, cloneCases(result))
+	return cloneCases(stored.([]domain.DisputeCase))
 }
 
 func matchCacheKey(clipID string, left, right domain.AnnotationSubmission, threshold float64) string {
