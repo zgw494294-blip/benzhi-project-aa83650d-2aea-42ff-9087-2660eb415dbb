@@ -74,12 +74,18 @@ func (b *ReviewBatch) ResolveDisputeWithTask(id, reviewer string, resolution Res
 		if d.LeftEventID == "" {
 			return Invalid("resolution", "该分歧没有左方事件")
 		}
-		resolution.NormalizedEvent = b.candidateByID(d.LeftEventID)
+		resolution.NormalizedEvent = b.candidateInDispute(*d, d.LeftSubmissionID, d.LeftEventID, true)
+		if resolution.NormalizedEvent == nil {
+			return Invalid("resolution", "左方候选事件已不存在")
+		}
 	case ResolutionAcceptRight:
 		if d.RightEventID == "" {
 			return Invalid("resolution", "该分歧没有右方事件")
 		}
-		resolution.NormalizedEvent = b.candidateByID(d.RightEventID)
+		resolution.NormalizedEvent = b.candidateInDispute(*d, d.RightSubmissionID, d.RightEventID, false)
+		if resolution.NormalizedEvent == nil {
+			return Invalid("resolution", "右方候选事件已不存在")
+		}
 	case ResolutionMerge:
 		clip, _ := b.Clip(d.ClipID)
 		if resolution.NormalizedEvent == nil {
@@ -206,13 +212,40 @@ func (b *ReviewBatch) HasOpenDisputes() bool {
 	return false
 }
 
-func (b *ReviewBatch) candidateByID(id string) *CandidateEvent {
-	for _, s := range b.Submissions {
-		for _, e := range s.Events {
-			if e.ID == id {
-				copy := e
-				return &copy
+// candidateInDispute resolves a side-specific candidate event for a dispute.
+// When two annotators submit events with the same ID but different content,
+// only the submission belonging to the selected side must be consulted.
+// submissionID is the authoritative link when present; otherwise the side is
+// reconstructed from the latest submitted pair (left = first by annotator ID).
+func (b *ReviewBatch) candidateInDispute(dispute DisputeCase, submissionID, eventID string, left bool) *CandidateEvent {
+	switch {
+	case submissionID != "":
+		for i := range b.Submissions {
+			s := &b.Submissions[i]
+			if s.ID != submissionID {
+				continue
 			}
+			return findEventByID(s.Events, eventID)
+		}
+		return nil
+	default:
+		subs := b.LatestSubmitted(dispute.ClipID)
+		if len(subs) < 2 {
+			return nil
+		}
+		events := subs[0].Events
+		if !left {
+			events = subs[1].Events
+		}
+		return findEventByID(events, eventID)
+	}
+}
+
+func findEventByID(events []CandidateEvent, id string) *CandidateEvent {
+	for _, e := range events {
+		if e.ID == id {
+			copy := e
+			return &copy
 		}
 	}
 	return nil

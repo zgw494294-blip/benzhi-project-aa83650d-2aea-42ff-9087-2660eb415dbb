@@ -65,18 +65,20 @@ type MatchBasis struct {
 }
 
 type DisputeCase struct {
-	ID           string        `json:"id"`
-	ClipID       string        `json:"clipId"`
-	Kind         DisputeKind   `json:"kind"`
-	LeftEventID  string        `json:"leftEventId,omitempty"`
-	RightEventID string        `json:"rightEventId,omitempty"`
-	MatchScore   float64       `json:"matchScore"`
-	Basis        MatchBasis    `json:"basis"`
-	Status       DisputeStatus `json:"status"`
-	Resolution   *Resolution   `json:"resolution,omitempty"`
-	ReviewerID   string        `json:"reviewerId,omitempty"`
-	ResolvedAt   *time.Time    `json:"resolvedAt,omitempty"`
-	Superseded   bool          `json:"superseded,omitempty"`
+	ID                 string        `json:"id"`
+	ClipID             string        `json:"clipId"`
+	Kind               DisputeKind   `json:"kind"`
+	LeftEventID        string        `json:"leftEventId,omitempty"`
+	RightEventID       string        `json:"rightEventId,omitempty"`
+	LeftSubmissionID   string        `json:"leftSubmissionId,omitempty"`
+	RightSubmissionID  string        `json:"rightSubmissionId,omitempty"`
+	MatchScore         float64       `json:"matchScore"`
+	Basis              MatchBasis    `json:"basis"`
+	Status             DisputeStatus `json:"status"`
+	Resolution         *Resolution   `json:"resolution,omitempty"`
+	ReviewerID         string        `json:"reviewerId,omitempty"`
+	ResolvedAt         *time.Time    `json:"resolvedAt,omitempty"`
+	Superseded         bool          `json:"superseded,omitempty"`
 }
 
 type ReannotationTask struct {

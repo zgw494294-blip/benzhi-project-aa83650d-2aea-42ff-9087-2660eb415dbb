@@ -58,16 +58,16 @@ func (m Matcher) Match(clipID string, left, right domain.AnnotationSubmission, i
 		if equal {
 			kind, status = domain.DisputeAgreement, domain.DisputeResolved
 		}
-		result = append(result, domain.DisputeCase{ID: id("case"), ClipID: clipID, Kind: kind, LeftEventID: le.ID, RightEventID: re.ID, MatchScore: p.score, Basis: domain.MatchBasis{SpeciesEqual: equal, OverlapMs: p.overlap, UnionMs: p.union, TimeIoU: p.score, Explanation: explanation(equal, p.overlap, p.union, p.score)}, Status: status})
+		result = append(result, domain.DisputeCase{ID: id("case"), ClipID: clipID, Kind: kind, LeftEventID: le.ID, RightEventID: re.ID, LeftSubmissionID: left.ID, RightSubmissionID: right.ID, MatchScore: p.score, Basis: domain.MatchBasis{SpeciesEqual: equal, OverlapMs: p.overlap, UnionMs: p.union, TimeIoU: p.score, Explanation: explanation(equal, p.overlap, p.union, p.score)}, Status: status})
 	}
 	for i, event := range left.Events {
 		if !usedL[i] {
-			result = append(result, domain.DisputeCase{ID: id("case"), ClipID: clipID, Kind: domain.DisputeLeftOnly, LeftEventID: event.ID, Basis: domain.MatchBasis{SpeciesEqual: false, Explanation: "右方没有达到时间重叠阈值的候选事件"}, Status: domain.DisputeOpen})
+			result = append(result, domain.DisputeCase{ID: id("case"), ClipID: clipID, Kind: domain.DisputeLeftOnly, LeftEventID: event.ID, LeftSubmissionID: left.ID, Basis: domain.MatchBasis{SpeciesEqual: false, Explanation: "右方没有达到时间重叠阈值的候选事件"}, Status: domain.DisputeOpen})
 		}
 	}
 	for i, event := range right.Events {
 		if !usedR[i] {
-			result = append(result, domain.DisputeCase{ID: id("case"), ClipID: clipID, Kind: domain.DisputeRightOnly, RightEventID: event.ID, Basis: domain.MatchBasis{SpeciesEqual: false, Explanation: "左方没有达到时间重叠阈值的候选事件"}, Status: domain.DisputeOpen})
+			result = append(result, domain.DisputeCase{ID: id("case"), ClipID: clipID, Kind: domain.DisputeRightOnly, RightEventID: event.ID, RightSubmissionID: right.ID, Basis: domain.MatchBasis{SpeciesEqual: false, Explanation: "左方没有达到时间重叠阈值的候选事件"}, Status: domain.DisputeOpen})
 		}
 	}
 	sortCases(result)
