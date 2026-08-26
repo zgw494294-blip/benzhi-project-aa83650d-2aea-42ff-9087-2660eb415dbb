@@ -1,6 +1,6 @@
 # BENZHI_README
 
-基于 Go 实现的acoustic-verdict-workbench Web 项目，一款后端服务，用于支持acoustic-verdict-workbench的核心业务流程。
+基于 Go 实现的野外声学监测数据质量治理 Web 项目，一款后端服务，用于管理野外录音双人标注、分歧仲裁、完整性校验和发布封存。
 
 ## 项目说明
 - 项目：benzhi-project-aa83650d-2aea-42ff-9087-2660eb415dbb
