@@ -110,11 +110,11 @@ func (s *Service) VerifyManifest(ctx context.Context, batchID string, meta Metad
 }
 
 func (s *Service) CheckQuality(ctx context.Context, cmd BatchCommand) (*domain.ReviewBatch, error) {
-	if err := authorize(cmd.Metadata, "reviewer", "release_manager"); err != nil {
-		return nil, err
-	}
 	if existing, ok := s.existing(ctx, "quality.check", cmd.Metadata); ok {
 		return existing, nil
+	}
+	if err := authorize(cmd.Metadata, "reviewer", "release_manager"); err != nil {
+		return nil, err
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {
@@ -129,14 +129,14 @@ func (s *Service) CheckQuality(ctx context.Context, cmd BatchCommand) (*domain.R
 }
 
 func (s *Service) Release(ctx context.Context, cmd ReleaseCommand) (*domain.ReviewBatch, error) {
+	if existing, ok := s.existing(ctx, "batch.release", cmd.Metadata); ok {
+		return existing, nil
+	}
 	if err := authorize(cmd.Metadata, "release_manager"); err != nil {
 		return nil, err
 	}
 	if cmd.ActorID != cmd.ReleasedBy {
 		return nil, domain.ErrForbidden
-	}
-	if existing, ok := s.existing(ctx, "batch.release", cmd.Metadata); ok {
-		return existing, nil
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {

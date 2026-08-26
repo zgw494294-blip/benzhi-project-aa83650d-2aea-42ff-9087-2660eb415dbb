@@ -7,11 +7,11 @@ import (
 )
 
 func (s *Service) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (*domain.ReviewBatch, error) {
-	if err := authorize(cmd.Metadata, "manager"); err != nil {
-		return nil, err
-	}
 	if existing, ok := s.existing(ctx, "batch.create", cmd.Metadata); ok {
 		return existing, nil
+	}
+	if err := authorize(cmd.Metadata, "manager"); err != nil {
+		return nil, err
 	}
 	now := s.now()
 	batch, err := domain.NewReviewBatch(s.ids("batch"), cmd.Title, cmd.SiteCode, cmd.RecordingStart, cmd.RecordingEnd, now)
@@ -22,11 +22,11 @@ func (s *Service) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (*dom
 }
 
 func (s *Service) ConfigureScope(ctx context.Context, cmd ConfigureScopeCommand) (*domain.ReviewBatch, error) {
-	if err := authorize(cmd.Metadata, "manager"); err != nil {
-		return nil, err
-	}
 	if existing, ok := s.existing(ctx, "batch.configure", cmd.Metadata); ok {
 		return existing, nil
+	}
+	if err := authorize(cmd.Metadata, "manager"); err != nil {
+		return nil, err
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {
@@ -39,11 +39,11 @@ func (s *Service) ConfigureScope(ctx context.Context, cmd ConfigureScopeCommand)
 }
 
 func (s *Service) AddClip(ctx context.Context, cmd AddClipCommand) (*domain.ReviewBatch, error) {
-	if err := authorize(cmd.Metadata, "manager"); err != nil {
-		return nil, err
-	}
 	if existing, ok := s.existing(ctx, "clip.add", cmd.Metadata); ok {
 		return existing, nil
+	}
+	if err := authorize(cmd.Metadata, "manager"); err != nil {
+		return nil, err
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {
@@ -60,14 +60,14 @@ func (s *Service) AddClip(ctx context.Context, cmd AddClipCommand) (*domain.Revi
 }
 
 func (s *Service) BulkRegisterClips(ctx context.Context, cmd BulkRegisterClipsCommand) (*BulkRegisterClipsResult, error) {
+	if existing, ok := s.existing(ctx, "clip.bulk_register", cmd.Metadata); ok {
+		return &BulkRegisterClipsResult{Batch: existing, AddedCount: len(cmd.Clips)}, nil
+	}
 	if err := authorize(cmd.Metadata, "manager"); err != nil {
 		return nil, err
 	}
 	if len(cmd.Clips) == 0 || len(cmd.Clips) > 200 {
 		return nil, domain.Invalid("clips", "批量登记条数必须在 1 到 200 之间")
-	}
-	if existing, ok := s.existing(ctx, "clip.bulk_register", cmd.Metadata); ok {
-		return &BulkRegisterClipsResult{Batch: existing, AddedCount: len(cmd.Clips)}, nil
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {
@@ -92,11 +92,11 @@ func (s *Service) BulkRegisterClips(ctx context.Context, cmd BulkRegisterClipsCo
 }
 
 func (s *Service) RemoveClip(ctx context.Context, cmd BatchCommand, clipID string) (*domain.ReviewBatch, error) {
-	if err := authorize(cmd.Metadata, "manager"); err != nil {
-		return nil, err
-	}
 	if existing, ok := s.existing(ctx, "clip.remove", cmd.Metadata); ok {
 		return existing, nil
+	}
+	if err := authorize(cmd.Metadata, "manager"); err != nil {
+		return nil, err
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {
@@ -109,11 +109,11 @@ func (s *Service) RemoveClip(ctx context.Context, cmd BatchCommand, clipID strin
 }
 
 func (s *Service) Freeze(ctx context.Context, cmd BatchCommand) (*domain.ReviewBatch, error) {
-	if err := authorize(cmd.Metadata, "manager"); err != nil {
-		return nil, err
-	}
 	if existing, ok := s.existing(ctx, "batch.freeze", cmd.Metadata); ok {
 		return existing, nil
+	}
+	if err := authorize(cmd.Metadata, "manager"); err != nil {
+		return nil, err
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {

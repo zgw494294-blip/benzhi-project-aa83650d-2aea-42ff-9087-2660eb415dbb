@@ -8,14 +8,14 @@ import (
 )
 
 func (s *Service) Resolve(ctx context.Context, cmd ResolveCommand) (*domain.ReviewBatch, error) {
+	if existing, ok := s.existing(ctx, "dispute.resolve", cmd.Metadata); ok {
+		return existing, nil
+	}
 	if err := authorize(cmd.Metadata, "reviewer"); err != nil {
 		return nil, err
 	}
 	if cmd.ActorID != cmd.ReviewerID {
 		return nil, domain.ErrForbidden
-	}
-	if existing, ok := s.existing(ctx, "dispute.resolve", cmd.Metadata); ok {
-		return existing, nil
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {

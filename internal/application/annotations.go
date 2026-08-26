@@ -7,6 +7,9 @@ import (
 )
 
 func (s *Service) SaveDraft(ctx context.Context, cmd DraftCommand) (*domain.ReviewBatch, error) {
+	if existing, ok := s.existing(ctx, "annotation.draft", cmd.Metadata); ok {
+		return existing, nil
+	}
 	if err := authorize(cmd.Metadata, "annotator"); err != nil {
 		return nil, err
 	}
@@ -15,9 +18,6 @@ func (s *Service) SaveDraft(ctx context.Context, cmd DraftCommand) (*domain.Revi
 	}
 	if len(cmd.Events) > 200 {
 		return nil, domain.Invalid("events", "单个草稿最多包含 200 条候选事件")
-	}
-	if existing, ok := s.existing(ctx, "annotation.draft", cmd.Metadata); ok {
-		return existing, nil
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {
@@ -38,14 +38,14 @@ func (s *Service) SaveDraft(ctx context.Context, cmd DraftCommand) (*domain.Revi
 }
 
 func (s *Service) Submit(ctx context.Context, cmd SubmitCommand) (*domain.ReviewBatch, error) {
+	if existing, ok := s.existing(ctx, "annotation.submit", cmd.Metadata); ok {
+		return existing, nil
+	}
 	if err := authorize(cmd.Metadata, "annotator"); err != nil {
 		return nil, err
 	}
 	if cmd.ActorID != cmd.AnnotatorID {
 		return nil, domain.ErrForbidden
-	}
-	if existing, ok := s.existing(ctx, "annotation.submit", cmd.Metadata); ok {
-		return existing, nil
 	}
 	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {
