@@ -1,4 +1,3 @@
-module phonemereleasedesk
+module acousticverdictworkbench
 
 go 1.22
-
