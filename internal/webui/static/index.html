@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Acoustic Verdict Workbench</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header><div><p class="eyebrow">野外声学数据治理</p><h1>声学裁决工作台</h1></div><div class="identity"><label>当前身份<select id="identity"><option value="manager-1|manager">批次负责人</option><option value="annotator-a|annotator">标注员甲</option><option value="annotator-b|annotator">标注员乙</option><option value="reviewer-1|reviewer">复核员</option><option value="publisher-1|release_manager">发布负责人</option></select></label><span id="connection">正在连接…</span></div></header>
+  <main>
+    <aside>
+      <button id="newBatch" class="primary">＋ 创建审校批次</button>
+      <h2>批次</h2><div id="batchList" class="stack"></div>
+    </aside>
+    <section id="workspace">
+      <div class="empty"><h2>唯一发布闭环</h2><p>创建批次并登记片段，随后完成冻结、双人标注、分歧仲裁、质量门禁与清单封存。</p></div>
+    </section>
+  </main>
+  <dialog id="editor"><form id="editorForm"><h2 id="editorTitle"></h2><div id="editorError" class="dialog-error" hidden></div><div id="editorFields"></div><menu><button type="button" id="editorCancel">取消</button><button id="editorSubmit" type="submit" class="primary">确认</button></menu></form></dialog>
+  <div id="toast" role="status"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

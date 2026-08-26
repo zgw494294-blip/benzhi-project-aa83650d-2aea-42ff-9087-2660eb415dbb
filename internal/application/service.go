@@ -5,47 +5,48 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
-	"phonemereleasedesk/internal/domain"
-	"phonemereleasedesk/internal/persistence"
+	"acousticverdictworkbench/internal/domain"
+	"acousticverdictworkbench/internal/quality"
+	"acousticverdictworkbench/internal/repository"
 )
 
 type Clock func() time.Time
 type IDGenerator func(string) string
 
 type Service struct {
-	repo     persistence.Repository
-	now      Clock
-	ids      IDGenerator
-	commitMu sync.Mutex
+	repo    repository.Repository
+	now     Clock
+	ids     IDGenerator
+	matcher quality.Matcher
+	checker quality.Checker
+	viewMu  sync.Mutex
+	views   map[string]*BatchView
 }
 
-func New(repo persistence.Repository) *Service {
-	return &Service{repo: repo, now: time.Now, ids: randomID}
+func New(repo repository.Repository) *Service {
+	return &Service{repo: repo, now: time.Now, ids: randomID, matcher: quality.NewMatcher(), checker: quality.NewChecker(), views: map[string]*BatchView{}}
 }
 
-func NewConfigured(repo persistence.Repository, now Clock, ids IDGenerator) *Service {
-	return &Service{repo: repo, now: now, ids: ids}
+func NewConfigured(repo repository.Repository, now Clock, ids IDGenerator) *Service {
+	return &Service{repo: repo, now: now, ids: ids, matcher: quality.NewMatcher(), checker: quality.NewChecker(), views: map[string]*BatchView{}}
 }
 
 func randomID(prefix string) string {
-	buffer := make([]byte, 8)
+	buffer := make([]byte, 10)
 	if _, err := rand.Read(buffer); err != nil {
 		return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 	}
 	return prefix + "-" + hex.EncodeToString(buffer)
 }
 
-func (s *Service) GetBatch(ctx context.Context, id string) (*domain.ReleaseBatch, error) {
-	return s.repo.Get(ctx, id)
-}
-func (s *Service) ListBatches(ctx context.Context) ([]*domain.ReleaseBatch, error) {
-	return s.repo.List(ctx)
-}
-
 func authorize(meta Metadata, roles ...string) error {
+	if strings.TrimSpace(meta.ActorID) == "" {
+		return domain.Invalid("actorId", "操作者 ID 不能为空")
+	}
 	for _, role := range roles {
 		if meta.Role == role {
 			return nil
@@ -54,23 +55,76 @@ func authorize(meta Metadata, roles ...string) error {
 	return domain.ErrForbidden
 }
 
-func (s *Service) idempotent(ctx context.Context, operation, key string) (*domain.ReleaseBatch, bool) {
-	if key == "" {
+func (s *Service) existing(ctx context.Context, operation string, meta Metadata) (*domain.ReviewBatch, bool) {
+	if meta.IdempotencyKey == "" {
 		return nil, false
 	}
-	result, exists := s.repo.Idempotent(ctx, operation+":"+key)
-	return result.Batch, exists
+	result, ok := s.repo.Idempotent(ctx, operation+":"+meta.IdempotencyKey)
+	if !ok {
+		return nil, false
+	}
+	return result.Batch, true
 }
 
-func (s *Service) commit(ctx context.Context, batch *domain.ReleaseBatch, expected uint64, operation, key string) (*domain.ReleaseBatch, error) {
-	s.commitMu.Lock()
-	defer s.commitMu.Unlock()
+func (s *Service) commit(ctx context.Context, batch *domain.ReviewBatch, expected uint64, operation, key string) (*domain.ReviewBatch, error) {
+	events := batch.DrainEvents()
 	persistenceKey := ""
 	if key != "" {
 		persistenceKey = operation + ":" + key
-		if result, exists := s.repo.Idempotent(ctx, persistenceKey); exists {
-			return result.Batch, nil
+	}
+	result, err := s.repo.Commit(ctx, repository.CommitRequest{Batch: batch, ExpectedVersion: expected, Operation: operation, IdempotencyKey: persistenceKey, Events: events, CommittedAt: s.now()})
+	if err != nil {
+		return nil, err
+	}
+	// 提交成功后丢弃该批次的查询投影缓存，确保下一次读取拿到最新已提交版本与事件内容。
+	s.invalidateViews(batch.ID)
+	return result.Batch, nil
+}
+
+func (s *Service) GetBatch(ctx context.Context, id, viewer, role string) (*BatchView, error) {
+	cacheKey := id + "\x00" + viewer + "\x00" + role
+	s.viewMu.Lock()
+	if cached := s.views[cacheKey]; cached != nil {
+		s.viewMu.Unlock()
+		return cached, nil
+	}
+	s.viewMu.Unlock()
+	batch, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	tasks := batch.VisibleReannotationTasks(viewer, role)
+	progress := ReannotationProgress{}
+	for _, task := range tasks {
+		switch task.Status {
+		case domain.ReannotationPending:
+			progress.Pending++
+		case domain.ReannotationInProgress:
+			progress.InProgress++
+		case domain.ReannotationClosed:
+			progress.Closed++
 		}
 	}
-	return s.repo.Commit(ctx, batch, expected, operation, persistenceKey, s.now())
+	view := &BatchView{Batch: batch, Submissions: batch.VisibleSubmissions(viewer, role), OpenQueue: batch.OpenDisputes(), ReannotationTasks: tasks, ReannotationProgress: progress}
+	s.viewMu.Lock()
+	s.views[cacheKey] = view
+	s.viewMu.Unlock()
+	return view, nil
+}
+
+// invalidateViews 丢弃指定批次的全部身份投影缓存。写命令提交成功后调用，
+// 防止后续读取返回提交前的版本或事件内容。
+func (s *Service) invalidateViews(batchID string) {
+	prefix := batchID + "\x00"
+	s.viewMu.Lock()
+	for key := range s.views {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.views, key)
+		}
+	}
+	s.viewMu.Unlock()
+}
+
+func (s *Service) ListBatches(ctx context.Context) ([]*domain.ReviewBatch, error) {
+	return s.repo.List(ctx)
 }
