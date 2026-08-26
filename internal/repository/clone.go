@@ -1,19 +1,15 @@
 package repository
 
 import (
-	"encoding/json"
+	"fmt"
 
 	"acousticverdictworkbench/internal/domain"
 )
 
 func cloneBatch(batch *domain.ReviewBatch) (*domain.ReviewBatch, error) {
-	data, err := json.Marshal(batch)
-	if err != nil {
-		return nil, err
+	if batch == nil {
+		return nil, fmt.Errorf("不能复制空批次")
 	}
-	var copy domain.ReviewBatch
-	if err := json.Unmarshal(data, &copy); err != nil {
-		return nil, err
-	}
+	copy := *batch
 	return &copy, nil
 }
