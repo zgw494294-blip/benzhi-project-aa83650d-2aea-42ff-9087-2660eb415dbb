@@ -3,83 +3,63 @@ package application
 import (
 	"context"
 
-	"phonemereleasedesk/internal/domain"
-	"phonemereleasedesk/internal/verification"
+	"acousticverdictworkbench/internal/domain"
 )
 
-func (s *Service) SaveSubmission(ctx context.Context, command SubmissionCommand) (*domain.ReleaseBatch, error) {
-	if err := authorize(command.Metadata, "annotator"); err != nil {
+func (s *Service) SaveDraft(ctx context.Context, cmd DraftCommand) (*domain.ReviewBatch, error) {
+	if err := authorize(cmd.Metadata, "annotator"); err != nil {
 		return nil, err
 	}
-	if command.ActorID != command.AnnotatorID {
+	if cmd.ActorID != cmd.AnnotatorID {
 		return nil, domain.ErrForbidden
 	}
-	if cached, ok := s.idempotent(ctx, "submission", command.IdempotencyKey); ok {
-		return cached, nil
+	if len(cmd.Events) > 200 {
+		return nil, domain.Invalid("events", "单个草稿最多包含 200 条候选事件")
 	}
-	batch, err := s.repo.Get(ctx, command.BatchID)
+	if existing, ok := s.existing(ctx, "annotation.draft", cmd.Metadata); ok {
+		return existing, nil
+	}
+	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}
-	if err := batch.CheckVersion(command.ExpectedVersion); err != nil {
-		return nil, err
+	if cmd.SubmissionID == "" {
+		cmd.SubmissionID = s.ids("submission")
 	}
-	wasRepair := batch.State == domain.StateRepair
-	if err := batch.SaveSubmission(command.SegmentID, command.AnnotatorID, command.Intervals, command.Submit, s.now()); err != nil {
-		return nil, err
-	}
-	if wasRepair && command.Submit && batch.RepairsResolved() {
-		scope := verification.AffectedSegments(batch.Repairs)
-		result := verification.Run(batch, s.ids("check"), scope, s.now())
-		if err := batch.RecordVerification(result.Run); err != nil {
-			return nil, err
+	for i := range cmd.Events {
+		if cmd.Events[i].ID == "" {
+			cmd.Events[i].ID = s.ids("event")
 		}
 	}
-	return s.commit(ctx, batch, command.ExpectedVersion, "submission", command.IdempotencyKey)
+	if err := batch.SaveDraft(cmd.SubmissionID, cmd.ClipID, cmd.AnnotatorID, cmd.Round, cmd.Events, cmd.RevisionReason, s.now()); err != nil {
+		return nil, err
+	}
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "annotation.draft", cmd.IdempotencyKey)
 }
 
-func (s *Service) ViewOwnSubmission(ctx context.Context, batchID, segmentID, actor string) (*domain.AnnotationSubmission, error) {
-	batch, err := s.repo.Get(ctx, batchID)
+func (s *Service) Submit(ctx context.Context, cmd SubmitCommand) (*domain.ReviewBatch, error) {
+	if err := authorize(cmd.Metadata, "annotator"); err != nil {
+		return nil, err
+	}
+	if cmd.ActorID != cmd.AnnotatorID {
+		return nil, domain.ErrForbidden
+	}
+	if existing, ok := s.existing(ctx, "annotation.submit", cmd.Metadata); ok {
+		return existing, nil
+	}
+	batch, err := s.repo.Get(ctx, cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}
-	return batch.VisibleSubmission(segmentID, actor)
-}
-
-func (s *Service) RunCheck(ctx context.Context, command BatchCommand) (*domain.ReleaseBatch, error) {
-	if err := authorize(command.Metadata, "manager", "reviewer"); err != nil {
+	if err := batch.SubmitConfirmed(cmd.ClipID, cmd.AnnotatorID, cmd.Round, cmd.RevisionReason, cmd.Confirmed, s.now()); err != nil {
 		return nil, err
 	}
-	if cached, ok := s.idempotent(ctx, "check", command.IdempotencyKey); ok {
-		return cached, nil
-	}
-	batch, err := s.repo.Get(ctx, command.BatchID)
-	if err != nil {
-		return nil, err
-	}
-	if err := batch.CheckVersion(command.ExpectedVersion); err != nil {
-		return nil, err
-	}
-	if batch.State == domain.StateRepair {
-		if !batch.RepairsResolved() {
-			return nil, domain.Invalid("repairs", "完成命中项修正后才能重检")
-		}
-		scope := verification.AffectedSegments(batch.Repairs)
-		result := verification.Run(batch, s.ids("check"), scope, s.now())
-		if err := batch.RecordVerification(result.Run); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := batch.BeginChecking(); err != nil {
-			return nil, err
-		}
-		result := verification.Run(batch, s.ids("check"), nil, s.now())
-		if err := batch.RecordVerification(result.Run); err != nil {
-			return nil, err
-		}
-		if err := batch.InstallDecisions(result.Conflicts); err != nil {
+	submissions := batch.LatestSubmitted(cmd.ClipID)
+	if len(submissions) == 2 {
+		cases := s.matcher.Match(cmd.ClipID, submissions[0], submissions[1], s.ids)
+		if err := batch.ReplaceClipDisputes(cmd.ClipID, cases, s.now()); err != nil {
 			return nil, err
 		}
 	}
-	return s.commit(ctx, batch, command.ExpectedVersion, "check", command.IdempotencyKey)
+	return s.commit(ctx, batch, cmd.ExpectedVersion, "annotation.submit", cmd.IdempotencyKey)
 }
