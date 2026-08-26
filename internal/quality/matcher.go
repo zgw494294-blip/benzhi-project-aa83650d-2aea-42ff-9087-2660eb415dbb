@@ -1,15 +1,21 @@
 package quality
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 
 	"acousticverdictworkbench/internal/domain"
 )
 
-type Matcher struct{ Threshold float64 }
+type Matcher struct {
+	Threshold float64
+	cache     map[string][]domain.DisputeCase
+}
 
-func NewMatcher() Matcher { return Matcher{Threshold: 0.5} }
+func NewMatcher() Matcher {
+	return Matcher{Threshold: 0.5, cache: make(map[string][]domain.DisputeCase)}
+}
 
 type pair struct {
 	left, right    int
@@ -18,6 +24,10 @@ type pair struct {
 }
 
 func (m Matcher) Match(clipID string, left, right domain.AnnotationSubmission, id func(string) string) []domain.DisputeCase {
+	key := matchCacheKey(clipID, left, right, m.Threshold)
+	if cached, ok := m.cache[key]; ok {
+		return cloneCases(cached)
+	}
 	pairs := make([]pair, 0)
 	for li, le := range left.Events {
 		for ri, re := range right.Events {
@@ -71,7 +81,22 @@ func (m Matcher) Match(clipID string, left, right domain.AnnotationSubmission, i
 		}
 	}
 	sortCases(result)
+	m.cache[key] = cloneCases(result)
 	return result
+}
+
+func matchCacheKey(clipID string, left, right domain.AnnotationSubmission, threshold float64) string {
+	encoded, _ := json.Marshal(struct {
+		ClipID    string                      `json:"clipId"`
+		Left      domain.AnnotationSubmission `json:"left"`
+		Right     domain.AnnotationSubmission `json:"right"`
+		Threshold float64                     `json:"threshold"`
+	}{ClipID: clipID, Left: left, Right: right, Threshold: threshold})
+	return string(encoded)
+}
+
+func cloneCases(cases []domain.DisputeCase) []domain.DisputeCase {
+	return append([]domain.DisputeCase(nil), cases...)
 }
 
 func intervalIoU(a0, a1, b0, b1 int64) (int64, int64, float64) {
