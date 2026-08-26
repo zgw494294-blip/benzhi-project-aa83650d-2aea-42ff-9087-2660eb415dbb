@@ -99,8 +99,6 @@ func (s *Store) loadIdempotency() error {
 }
 
 func (s *Store) Get(_ context.Context, id string) (*domain.ReviewBatch, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	batch := s.batches[id]
 	if batch == nil {
 		return nil, domain.ErrNotFound
@@ -109,8 +107,6 @@ func (s *Store) Get(_ context.Context, id string) (*domain.ReviewBatch, error) {
 }
 
 func (s *Store) List(_ context.Context) ([]*domain.ReviewBatch, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	ids := make([]string, 0, len(s.batches))
 	for id := range s.batches {
 		ids = append(ids, id)
@@ -128,8 +124,6 @@ func (s *Store) List(_ context.Context) ([]*domain.ReviewBatch, error) {
 }
 
 func (s *Store) Idempotent(_ context.Context, key string) (*CommitResult, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	record, ok := s.idempotency[key]
 	if !ok {
 		return nil, false
