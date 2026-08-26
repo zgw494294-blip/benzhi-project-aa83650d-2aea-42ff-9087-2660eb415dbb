@@ -28,7 +28,7 @@ func (s *Service) ConfigureScope(ctx context.Context, cmd ConfigureScopeCommand)
 	if existing, ok := s.existing(ctx, "batch.configure", cmd.Metadata); ok {
 		return existing, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (s *Service) AddClip(ctx context.Context, cmd AddClipCommand) (*domain.Revi
 	if existing, ok := s.existing(ctx, "clip.add", cmd.Metadata); ok {
 		return existing, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (s *Service) BulkRegisterClips(ctx context.Context, cmd BulkRegisterClipsCo
 	if existing, ok := s.existing(ctx, "clip.bulk_register", cmd.Metadata); ok {
 		return &BulkRegisterClipsResult{Batch: existing, AddedCount: len(cmd.Clips)}, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (s *Service) RemoveClip(ctx context.Context, cmd BatchCommand, clipID strin
 	if existing, ok := s.existing(ctx, "clip.remove", cmd.Metadata); ok {
 		return existing, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (s *Service) Freeze(ctx context.Context, cmd BatchCommand) (*domain.ReviewB
 	if existing, ok := s.existing(ctx, "batch.freeze", cmd.Metadata); ok {
 		return existing, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}

@@ -31,7 +31,7 @@ func (s *Service) ManifestDetails(ctx context.Context, batchID string, meta Meta
 	if (query.StartMs != nil && *query.StartMs < 0) || (query.EndMs != nil && *query.EndMs < 0) || (query.StartMs != nil && query.EndMs != nil && *query.EndMs < *query.StartMs) {
 		return nil, domain.Invalid("timeRange", "时间筛选必须为非负数且结束毫秒不能早于开始毫秒")
 	}
-	batch, err := s.repo.Get(ctx, batchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (s *Service) VerifyManifest(ctx context.Context, batchID string, meta Metad
 	if err := authorize(meta, "release_manager", "reviewer"); err != nil {
 		return nil, err
 	}
-	batch, err := s.repo.Get(ctx, batchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (s *Service) CheckQuality(ctx context.Context, cmd BatchCommand) (*domain.R
 	if existing, ok := s.existing(ctx, "quality.check", cmd.Metadata); ok {
 		return existing, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (s *Service) Release(ctx context.Context, cmd ReleaseCommand) (*domain.Revi
 	if existing, ok := s.existing(ctx, "batch.release", cmd.Metadata); ok {
 		return existing, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}

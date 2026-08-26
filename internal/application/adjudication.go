@@ -17,7 +17,7 @@ func (s *Service) Resolve(ctx context.Context, cmd ResolveCommand) (*domain.Revi
 	if existing, ok := s.existing(ctx, "dispute.resolve", cmd.Metadata); ok {
 		return existing, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}

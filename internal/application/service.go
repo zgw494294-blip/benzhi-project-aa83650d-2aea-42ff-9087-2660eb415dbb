@@ -56,7 +56,7 @@ func (s *Service) existing(ctx context.Context, operation string, meta Metadata)
 	if meta.IdempotencyKey == "" {
 		return nil, false
 	}
-	result, ok := s.repo.Idempotent(ctx, operation+":"+meta.IdempotencyKey)
+	result, ok := s.repo.Idempotent(context.WithoutCancel(ctx), operation+":"+meta.IdempotencyKey)
 	if !ok {
 		return nil, false
 	}
@@ -69,7 +69,7 @@ func (s *Service) commit(ctx context.Context, batch *domain.ReviewBatch, expecte
 	if key != "" {
 		persistenceKey = operation + ":" + key
 	}
-	result, err := s.repo.Commit(ctx, repository.CommitRequest{Batch: batch, ExpectedVersion: expected, Operation: operation, IdempotencyKey: persistenceKey, Events: events, CommittedAt: s.now()})
+	result, err := s.repo.Commit(context.WithoutCancel(ctx), repository.CommitRequest{Batch: batch, ExpectedVersion: expected, Operation: operation, IdempotencyKey: persistenceKey, Events: events, CommittedAt: s.now()})
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (s *Service) commit(ctx context.Context, batch *domain.ReviewBatch, expecte
 }
 
 func (s *Service) GetBatch(ctx context.Context, id, viewer, role string) (*BatchView, error) {
-	batch, err := s.repo.Get(ctx, id)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), id)
 	if err != nil {
 		return nil, err
 	}
@@ -97,5 +97,5 @@ func (s *Service) GetBatch(ctx context.Context, id, viewer, role string) (*Batch
 }
 
 func (s *Service) ListBatches(ctx context.Context) ([]*domain.ReviewBatch, error) {
-	return s.repo.List(ctx)
+	return s.repo.List(context.WithoutCancel(ctx))
 }

@@ -19,7 +19,7 @@ func (s *Service) SaveDraft(ctx context.Context, cmd DraftCommand) (*domain.Revi
 	if existing, ok := s.existing(ctx, "annotation.draft", cmd.Metadata); ok {
 		return existing, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func (s *Service) Submit(ctx context.Context, cmd SubmitCommand) (*domain.Review
 	if existing, ok := s.existing(ctx, "annotation.submit", cmd.Metadata); ok {
 		return existing, nil
 	}
-	batch, err := s.repo.Get(ctx, cmd.BatchID)
+	batch, err := s.repo.Get(context.WithoutCancel(ctx), cmd.BatchID)
 	if err != nil {
 		return nil, err
 	}
