@@ -4,20 +4,30 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"acousticverdictworkbench/internal/domain"
 )
 
-type Checker struct{}
+type checkerCache struct {
+	mu          sync.Mutex
+	submissions map[string][]domain.AnnotationSubmission
+}
 
-func NewChecker() Checker { return Checker{} }
+type Checker struct {
+	cache *checkerCache
+}
 
-func (Checker) Check(batch *domain.ReviewBatch, now time.Time) domain.QualityReport {
+func NewChecker() Checker {
+	return Checker{cache: &checkerCache{submissions: make(map[string][]domain.AnnotationSubmission)}}
+}
+
+func (c Checker) Check(batch *domain.ReviewBatch, now time.Time) domain.QualityReport {
 	report := domain.QualityReport{BatchID: batch.ID, BatchVersion: batch.Version, CheckedAt: now.UTC(), ClipCount: len(batch.Clips), Issues: []domain.QualityIssue{}}
 	allowed := batch.SpeciesSet()
 	for _, clip := range batch.Clips {
-		subs := batch.LatestSubmitted(clip.ID)
+		subs := c.submissionsFor(batch, clip.ID)
 		if len(subs) != 2 {
 			report.Issues = append(report.Issues, issue("clip_coverage", "片段必须恰好有两名标注员完成当前轮提交", batch.ID, clip.ID, "", "", ""))
 			continue
@@ -53,6 +63,29 @@ func (Checker) Check(batch *domain.ReviewBatch, now time.Time) domain.QualityRep
 	})
 	report.Passed = report.ClipCount > 0 && len(report.Issues) == 0 && report.CoveredClips == report.ClipCount
 	return report
+}
+
+func (c Checker) submissionsFor(batch *domain.ReviewBatch, clipID string) []domain.AnnotationSubmission {
+	if c.cache == nil {
+		return batch.LatestSubmitted(clipID)
+	}
+	c.cache.mu.Lock()
+	defer c.cache.mu.Unlock()
+	if cached, ok := c.cache.submissions[clipID]; ok {
+		return cloneSubmissions(cached)
+	}
+	submissions := batch.LatestSubmitted(clipID)
+	c.cache.submissions[clipID] = cloneSubmissions(submissions)
+	return submissions
+}
+
+func cloneSubmissions(source []domain.AnnotationSubmission) []domain.AnnotationSubmission {
+	result := make([]domain.AnnotationSubmission, len(source))
+	for i := range source {
+		result[i] = source[i]
+		result[i].Events = append([]domain.CandidateEvent(nil), source[i].Events...)
+	}
+	return result
 }
 
 func validateSubmission(batch *domain.ReviewBatch, clip domain.AudioClip, sub domain.AnnotationSubmission, allowed map[string]struct{}) []domain.QualityIssue {
