@@ -1,50 +1,68 @@
-# PhonemeReleaseDesk
+# Acoustic Verdict Workbench
 
-PhonemeReleaseDesk 是面向方言语音资料团队的音素标注发布资格工作台。它把语料规范、录音片段范围、双人独立标注、确定性规则检查、冲突裁定、定向返修、复核封存和发布凭据核验放在一个可审计的本地流程中。浏览器页面和同源 JSON API 均由 Go 服务直接提供，不需要 Node.js 构建链或外部系统。
+Acoustic Verdict Workbench（声学裁决工作台）用于治理野外声学监测数据集的标注质量。它把审校批次范围登记、录音片段批量预检、双人独立多事件标注、确定性分歧匹配、定向返标、复核仲裁、发布前质量检查和不可变清单封存收束为唯一闭环。
 
-## 业务流程
+浏览器页面、原生 HTML/CSS/JavaScript 与同源 JSON API 均由 Go 服务直接提供，不需要 Node.js 或外部系统。两名标注员提交前只能看到自己的草稿；冻结后不能修改片段与物种范围；封存后所有业务写入都会被状态机拒绝。
 
-批次依次经过 `draft`、`frozen`、`annotating`、`checking`、`adjudicating`、`candidate`、`repair` 和 `sealed` 状态。冻结后不能增删片段；两名标注员只能查看和修改自己的标注；复核退回只解锁命中的标注或裁定项；封存后所有业务写入都会被拒绝。
+## 数据与一致性
 
-每个写请求携带 `expectedVersion` 进行乐观并发控制，并建议携带唯一的 `Idempotency-Key` 请求头。数据保存在 `-data` 指定目录：`events.jsonl` 是带递增序号和 SHA-256 哈希链的事件账本，`snapshots/` 保存原子更新的批次快照，`idempotency.json` 保存幂等结果。启动时服务会校验账本并重建投影。
+每个写请求都携带 `expectedVersion`，并通过 `Idempotency-Key` 持久化去重。单进程写入协调器串行提交命令，本地数据目录包含：
 
-工作台现已支持片段批量预检与原子登记、双标任务负载预览与批量分配、检查运行历史及范围感知对比、冲突队列筛选与原子批量裁定。定向返修以任务状态跟踪命中目标、重检运行和前后差异；已封存凭据可按批次或凭据检索，分页查看稳定排序的规范化区间，并分别核验摘要、片段数和区间数。所有预览、历史、差异和凭据查询均为只读操作。
+- `snapshots/*.json`：带 `schemaVersion` 的批次快照，通过候选临时文件、`Sync` 和原子 `Rename` 提交。
+- `audit.jsonl`：只追加审计日志，记录连续序号、前序摘要和当前 SHA-256 摘要。
+- `idempotency.json`：保存写命令的原始响应版本，使重复请求返回相同业务结果。
 
-## 构建与测试
+服务启动时校验审计日志的序号与摘要链，加载全部快照并恢复查询投影。发布清单包含稳定排序的规范事件、片段摘要组成、仲裁轨迹组成和最终 `manifestSHA256`。发布后可以按片段、物种和时间区间分页检索事件，并只读复算 `clipDigest`、`adjudicationDigest` 与 `manifestSHA256`，核验不会改变批次版本。
 
-项目要求 Go 1.22 或更高版本。
+## 工作台扩展能力
+
+- 草拟批次可在片段区域一次登记 1–200 条元数据。服务会集中检查片段标识、序号、SHA-256 内容摘要和采集边界；错误响应携带行号，任一行失败时整批不写入。
+- 标注员可在一个草稿中增删和编辑多条候选事件。草稿按时间稳定排序，只向本人恢复；提交前展示事件数量与总区间并要求确认，提交后锁定当前轮次。
+- 复核员退回分歧时必须选择关联标注员并填写理由。工作台向目标标注员展示下一轮待办、原匹配依据和修订上下文，返标提交后仅重算目标片段并保留全部历史轮次。
+- 已发布批次提供只读的事件筛选分页、来源片段与仲裁轨迹摘要组成，以及三项摘要复算结果，不提供发布后编辑入口。
+
+## 构建
+
+项目要求 Go 1.22 或更高版本：
 
 ```text
-go build ./cmd/server
-go test ./...
+go build ./cmd/acoustic-review
 ```
 
 ## 运行
 
-默认只监听高位回环地址 `127.0.0.1:19081`：
+默认仅监听高位回环地址 `127.0.0.1:19081`：
 
 ```text
-go run ./cmd/server -data=./var/data
+go run ./cmd/acoustic-review
 ```
 
-也可以显式配置回环地址：
+显式指定监听地址与数据目录：
 
 ```text
-go run ./cmd/server -addr=127.0.0.1:19082 -data=./var/data
+go run ./cmd/acoustic-review -addr=127.0.0.1:19082 -data=./var/acoustic-review
 ```
 
-未传 `-addr` 时，可以通过 `PORT` 指定端口，服务会绑定 `127.0.0.1:<PORT>`。出于安全考虑，程序拒绝 `0.0.0.0`、非回环 IP、无效端口和格式错误的监听地址。启动后访问 `http://127.0.0.1:19081/` 即可使用工作台。
+未传 `-addr` 时，也可通过 `PORT` 提供端口号，服务会绑定 `127.0.0.1:<PORT>`。程序拒绝 `0.0.0.0`、非回环 IP、无效端口和格式错误的地址。启动后打开 `http://127.0.0.1:19081/` 即可使用工作台。
 
-## 有界自检
+## 测试与自检
 
-以下命令启动真实回环 HTTP 服务，通过与浏览器相同的 API 完成建批、冻结、双标冲突、检查、裁定、定向返修、重检、封存和摘要核验，然后主动关闭并返回退出码：
+运行全部回归测试：
 
 ```text
-go run ./cmd/server -selfcheck -addr=127.0.0.1:19081 -data=./var/selfcheck
+go test ./...
 ```
 
-## 角色和 API 约定
+运行可自行结束的真实 HTTP 自检：
 
-页面请求体会明确提交 `actorId` 和 `role`。受支持角色包括 `manager`、`annotator`、`adjudicator` 和 `reviewer`。API 错误以统一 JSON 返回；版本冲突使用 HTTP `409`，越权使用 `403`，对象不存在使用 `404`，字段或业务规则问题使用 `422`。健康检查位于 `GET /api/health`，凭据可通过 `GET /api/credentials/{id}/verify` 独立核验。
+```text
+go run ./cmd/acoustic-review -selfcheck -addr=127.0.0.1:19081
+```
 
-批量写接口为 `segments/bulk`、`assignments/bulk` 和 `decisions/bulk`，确认请求必须携带 `Idempotency-Key`；对应预检或预览接口为 `segments/preflight` 和 `assignments/preview`。检查历史与对比位于 `checks/history`、`checks/compare`，返修任务位于 `repairs/tasks`。`GET /api/credentials` 提供凭据明细分页，`GET /api/credentials/verify` 提供按 `credentialId`、`batchId` 的分项核验。
+自检会创建隔离临时数据目录，启动真实回环监听，通过公开页面和 JSON 接口完成建批、范围冻结、双人冲突标注、仲裁、质量门禁、发布封存与封存后写保护验证，然后关闭服务并清理资源。
+
+## 角色与接口约定
+
+支持 `manager`、`annotator`、`reviewer` 和 `release_manager` 角色。写请求正文提供 `actorId`、`role` 与 `expectedVersion`，请求头提供唯一 `Idempotency-Key`。版本或状态冲突返回 HTTP `409`，越权返回 `403`，对象不存在返回 `404`，字段与领域规则错误返回 `422`。
+
+工作台详情查询使用 `actorId` 和 `role` 查询参数过滤草稿与返标任务。公开 API 从 `GET /api/batches` 和 `POST /api/batches` 开始，批次子资源覆盖 `scope`、`clips`、`clips/bulk`、`freeze`、`draft`、`submit`、`disputes/{disputeID}/resolve`、`quality` 与 `release`。发布明细使用 `GET /api/batches/{batchID}/manifest`，摘要核验使用 `GET /api/batches/{batchID}/manifest/verify`；两者都要求 `release_manager` 或 `reviewer` 身份查询参数。
