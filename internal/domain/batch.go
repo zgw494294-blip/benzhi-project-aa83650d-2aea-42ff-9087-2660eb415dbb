@@ -1,165 +1,185 @@
 package domain
 
 import (
+	"encoding/hex"
 	"sort"
 	"strings"
 	"time"
 )
 
-type ReleaseBatch struct {
-	ID                   string                            `json:"id"`
-	DialectSite          string                            `json:"dialectSite"`
-	PhoneticSystem       string                            `json:"phoneticSystem"`
-	AllowedLabels        []string                          `json:"allowedLabels"`
-	MinimumSegmentMillis int64                             `json:"minimumSegmentMillis"`
-	RequireDual          bool                              `json:"requireDual"`
-	State                BatchState                        `json:"state"`
-	Version              uint64                            `json:"version"`
-	CreatedAt            time.Time                         `json:"createdAt"`
-	SealedAt             *time.Time                        `json:"sealedAt,omitempty"`
-	Segments             map[string]RecordingSegment       `json:"segments"`
-	Assignments          map[string][]string               `json:"assignments"`
-	Submissions          map[string][]AnnotationSubmission `json:"submissions"`
-	Decisions            map[string]AdjudicationDecision   `json:"decisions"`
-	VerificationRuns     []VerificationRun                 `json:"verificationRuns"`
-	Repairs              []RepairRequest                   `json:"repairs"`
-	Credential           *ReleaseCredential                `json:"credential,omitempty"`
+func NewReviewBatch(id, title, site string, start, end, now time.Time) (*ReviewBatch, error) {
+	title = strings.TrimSpace(title)
+	site = strings.TrimSpace(site)
+	if id == "" || title == "" || site == "" {
+		return nil, Invalid("batch", "批次 ID、标题和采集地点均不能为空")
+	}
+	if len([]rune(title)) > 120 || len([]rune(site)) > 64 {
+		return nil, Invalid("batch", "批次标题或地点过长")
+	}
+	if !end.After(start) {
+		return nil, Invalid("recordingEnd", "录音结束时间必须晚于开始时间")
+	}
+	b := &ReviewBatch{ID: id, Title: title, SiteCode: site, RecordingStart: start.UTC(), RecordingEnd: end.UTC(), Status: BatchDraft, CreatedAt: now.UTC(), Clips: []AudioClip{}, Submissions: []AnnotationSubmission{}, Disputes: []DisputeCase{}, AdjudicationTrail: []AdjudicationRecord{}}
+	b.record("batch.created", now, map[string]any{"title": title, "siteCode": site})
+	return b, nil
 }
 
-func NewReleaseBatch(id, site, system string, labels []string, minimum int64, requireDual bool, now time.Time) (*ReleaseBatch, error) {
-	if strings.TrimSpace(id) == "" {
-		return nil, Invalid("id", "批次 ID 不能为空")
+func (b *ReviewBatch) ConfigureScope(title, site string, start, end time.Time, species []string, now time.Time) error {
+	if b.Status != BatchDraft {
+		return ErrStateConflict
 	}
-	if strings.TrimSpace(site) == "" || strings.TrimSpace(system) == "" {
-		return nil, Invalid("specification", "方言点和音标体系不能为空")
+	title, site = strings.TrimSpace(title), strings.TrimSpace(site)
+	if title == "" || site == "" || !end.After(start) {
+		return Invalid("scope", "标题、地点和有效录音时间范围均为必填")
 	}
-	if minimum <= 0 {
-		return nil, Invalid("minimumSegmentMillis", "最短片段时长必须大于零")
-	}
-	normalized, err := NormalizeLabels(labels)
-	if err != nil {
-		return nil, err
-	}
-	return &ReleaseBatch{
-		ID: id, DialectSite: strings.TrimSpace(site), PhoneticSystem: strings.TrimSpace(system),
-		AllowedLabels: normalized, MinimumSegmentMillis: minimum, RequireDual: requireDual,
-		State: StateDraft, Version: 1, CreatedAt: now.UTC(), Segments: map[string]RecordingSegment{},
-		Assignments: map[string][]string{}, Submissions: map[string][]AnnotationSubmission{},
-		Decisions: map[string]AdjudicationDecision{}, VerificationRuns: []VerificationRun{}, Repairs: []RepairRequest{},
-	}, nil
-}
-
-func NormalizeLabels(labels []string) ([]string, error) {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(labels))
-	for _, label := range labels {
-		label = strings.TrimSpace(label)
-		if label == "" {
-			return nil, Invalid("allowedLabels", "标签不能为空")
-		}
-		if !seen[label] {
-			seen[label] = true
-			out = append(out, label)
-		}
-	}
-	if len(out) == 0 {
-		return nil, Invalid("allowedLabels", "至少配置一个允许标签")
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-func (b *ReleaseBatch) EnsureWritable() error {
-	if b.State == StateSealed || b.Credential != nil {
-		return ErrSealed
-	}
-	return nil
-}
-
-func (b *ReleaseBatch) CheckVersion(expected uint64) error {
-	if expected != b.Version {
-		return ErrVersionConflict
-	}
-	return nil
-}
-
-func (b *ReleaseBatch) HasLabel(label string) bool {
-	i := sort.SearchStrings(b.AllowedLabels, label)
-	return i < len(b.AllowedLabels) && b.AllowedLabels[i] == label
-}
-
-func (b *ReleaseBatch) UpdateSpecification(site, system string, labels []string, minimum int64, requireDual bool) error {
-	if err := b.EnsureWritable(); err != nil {
-		return err
-	}
-	if b.State != StateDraft {
-		return ErrInvalidState
-	}
-	if strings.TrimSpace(site) == "" || strings.TrimSpace(system) == "" {
-		return Invalid("specification", "方言点和音标体系不能为空")
-	}
-	if minimum <= 0 {
-		return Invalid("minimumSegmentMillis", "最短片段时长必须大于零")
-	}
-	normalized, err := NormalizeLabels(labels)
+	codes, err := NormalizeSpecies(species)
 	if err != nil {
 		return err
 	}
-	for _, segment := range b.Segments {
-		if segment.EndMillis-segment.StartMillis < minimum {
-			return Invalid("minimumSegmentMillis", "现有片段短于新的时长下限")
-		}
-	}
-	b.DialectSite = strings.TrimSpace(site)
-	b.PhoneticSystem = strings.TrimSpace(system)
-	b.AllowedLabels = normalized
-	b.MinimumSegmentMillis = minimum
-	b.RequireDual = requireDual
-	b.Version++
+	b.Title, b.SiteCode = title, site
+	b.RecordingStart, b.RecordingEnd = start.UTC(), end.UTC()
+	b.AllowedSpeciesCodes = codes
+	b.record("batch.scope_configured", now, map[string]any{"speciesCount": len(codes)})
 	return nil
 }
 
-func (b *ReleaseBatch) Clone() *ReleaseBatch {
-	copyBatch := *b
-	copyBatch.AllowedLabels = append([]string(nil), b.AllowedLabels...)
-	copyBatch.Segments = make(map[string]RecordingSegment, len(b.Segments))
-	for key, value := range b.Segments {
-		copyBatch.Segments[key] = value
+func (b *ReviewBatch) AddClip(clip AudioClip, now time.Time) error {
+	if b.Status != BatchDraft {
+		return ErrStateConflict
 	}
-	copyBatch.Assignments = make(map[string][]string, len(b.Assignments))
-	for key, value := range b.Assignments {
-		copyBatch.Assignments[key] = append([]string(nil), value...)
+	normalized, errors := b.validateClips([]AudioClip{clip})
+	if len(errors) > 0 {
+		return Invalid(errors[0].Field, errors[0].Message)
 	}
-	copyBatch.Submissions = make(map[string][]AnnotationSubmission, len(b.Submissions))
-	for key, list := range b.Submissions {
-		cloned := make([]AnnotationSubmission, len(list))
-		for i, value := range list {
-			cloned[i] = value
-			cloned[i].Intervals = append([]PhonemeInterval(nil), value.Intervals...)
+	b.Clips = append(b.Clips, normalized[0])
+	sort.Slice(b.Clips, func(i, j int) bool { return b.Clips[i].Sequence < b.Clips[j].Sequence })
+	b.record("clip.added", now, map[string]any{"clipId": normalized[0].ID, "sequence": normalized[0].Sequence})
+	return nil
+}
+
+func (b *ReviewBatch) AddClips(clips []AudioClip, now time.Time) error {
+	if b.Status != BatchDraft {
+		return ErrStateConflict
+	}
+	if len(clips) == 0 {
+		return Invalid("clips", "至少需要一条录音片段")
+	}
+	normalized, errors := b.validateClips(clips)
+	if len(errors) > 0 {
+		return InvalidFields(errors)
+	}
+	b.Clips = append(b.Clips, normalized...)
+	sort.Slice(b.Clips, func(i, j int) bool {
+		if b.Clips[i].Sequence != b.Clips[j].Sequence {
+			return b.Clips[i].Sequence < b.Clips[j].Sequence
 		}
-		copyBatch.Submissions[key] = cloned
+		return b.Clips[i].ID < b.Clips[j].ID
+	})
+	ids := make([]string, len(normalized))
+	sequences := make([]int, len(normalized))
+	for i := range normalized {
+		ids[i], sequences[i] = normalized[i].ID, normalized[i].Sequence
 	}
-	copyBatch.Decisions = make(map[string]AdjudicationDecision, len(b.Decisions))
-	for key, value := range b.Decisions {
-		value.CandidateLabels = append([]string(nil), value.CandidateLabels...)
-		copyBatch.Decisions[key] = value
+	b.record("clip.bulk_registered", now, map[string]any{"addedCount": len(normalized), "clipIds": ids, "sequences": sequences})
+	return nil
+}
+
+func (b *ReviewBatch) validateClips(clips []AudioClip) ([]AudioClip, []FieldError) {
+	existingIDs := make(map[string]struct{}, len(b.Clips))
+	existingSequences := make(map[int]struct{}, len(b.Clips))
+	existingDigests := make(map[string]struct{}, len(b.Clips))
+	for _, clip := range b.Clips {
+		existingIDs[clip.ID] = struct{}{}
+		existingSequences[clip.Sequence] = struct{}{}
+		existingDigests[strings.ToLower(clip.ContentSHA256)] = struct{}{}
 	}
-	copyBatch.VerificationRuns = make([]VerificationRun, len(b.VerificationRuns))
-	for i, run := range b.VerificationRuns {
-		copyBatch.VerificationRuns[i] = run
-		copyBatch.VerificationRuns[i].Scope = append([]string(nil), run.Scope...)
-		copyBatch.VerificationRuns[i].Findings = append([]Finding(nil), run.Findings...)
-		copyBatch.VerificationRuns[i].Difference = append([]string(nil), run.Difference...)
+	normalized := make([]AudioClip, len(clips))
+	errors := make([]FieldError, 0)
+	for i, raw := range clips {
+		row := i + 1
+		clip := raw
+		clip.ID = strings.TrimSpace(clip.ID)
+		clip.SourceName = strings.TrimSpace(clip.SourceName)
+		clip.ContentSHA256 = strings.ToLower(strings.TrimSpace(clip.ContentSHA256))
+		clip.CapturedAt = clip.CapturedAt.UTC()
+		clip.BatchID, clip.ReviewState = b.ID, "pending"
+		if clip.ID == "" || len(clip.ID) > 128 {
+			errors = append(errors, FieldError{Row: row, Field: "id", Message: "片段标识不能为空且不能超过 128 字符"})
+		} else if _, exists := existingIDs[clip.ID]; exists {
+			errors = append(errors, FieldError{Row: row, Field: "id", Message: "片段标识重复"})
+		} else {
+			existingIDs[clip.ID] = struct{}{}
+		}
+		if clip.SourceName == "" || len([]rune(clip.SourceName)) > 200 {
+			errors = append(errors, FieldError{Row: row, Field: "sourceName", Message: "来源名称不能为空且不能超过 200 个字符"})
+		}
+		if clip.CapturedAt.IsZero() || clip.CapturedAt.Before(b.RecordingStart) || clip.CapturedAt.After(b.RecordingEnd) {
+			errors = append(errors, FieldError{Row: row, Field: "capturedAt", Message: "片段采集时间必须位于批次时间范围内"})
+		}
+		if clip.DurationMs <= 0 || clip.DurationMs > 24*60*60*1000 {
+			errors = append(errors, FieldError{Row: row, Field: "durationMs", Message: "片段时长必须为不超过 24 小时的正毫秒数"})
+		}
+		decoded, digestErr := hex.DecodeString(clip.ContentSHA256)
+		if digestErr != nil || len(decoded) != 32 {
+			errors = append(errors, FieldError{Row: row, Field: "contentSHA256", Message: "内容摘要必须是 64 位 SHA-256 十六进制文本"})
+		} else if _, exists := existingDigests[clip.ContentSHA256]; exists {
+			errors = append(errors, FieldError{Row: row, Field: "contentSHA256", Message: "内容摘要重复"})
+		} else {
+			existingDigests[clip.ContentSHA256] = struct{}{}
+		}
+		if clip.Sequence <= 0 {
+			errors = append(errors, FieldError{Row: row, Field: "sequence", Message: "片段序号必须为正整数"})
+		} else if _, exists := existingSequences[clip.Sequence]; exists {
+			errors = append(errors, FieldError{Row: row, Field: "sequence", Message: "片段序号重复"})
+		} else {
+			existingSequences[clip.Sequence] = struct{}{}
+		}
+		normalized[i] = clip
 	}
-	copyBatch.Repairs = make([]RepairRequest, len(b.Repairs))
-	for i, repair := range b.Repairs {
-		copyBatch.Repairs[i] = repair
-		copyBatch.Repairs[i].Difference = append([]FindingDifference(nil), repair.Difference...)
+	return normalized, errors
+}
+
+func (b *ReviewBatch) RemoveClip(id string, now time.Time) error {
+	if b.Status != BatchDraft {
+		return ErrStateConflict
 	}
-	if b.Credential != nil {
-		value := *b.Credential
-		value.Manifest = append([]ManifestInterval(nil), b.Credential.Manifest...)
-		copyBatch.Credential = &value
+	for i := range b.Clips {
+		if b.Clips[i].ID == id {
+			b.Clips = append(b.Clips[:i], b.Clips[i+1:]...)
+			b.record("clip.removed", now, map[string]any{"clipId": id})
+			return nil
+		}
 	}
-	return &copyBatch
+	return ErrNotFound
+}
+
+func (b *ReviewBatch) Freeze(now time.Time) error {
+	if b.Status != BatchDraft {
+		return ErrStateConflict
+	}
+	if len(b.Clips) == 0 || len(b.AllowedSpeciesCodes) == 0 {
+		return Invalid("scope", "冻结前必须登记片段和允许物种范围")
+	}
+	b.Status = BatchFrozen
+	t := now.UTC()
+	b.FrozenAt = &t
+	b.record("batch.frozen", now, map[string]any{"clipCount": len(b.Clips)})
+	return nil
+}
+
+func (b *ReviewBatch) Clip(id string) (*AudioClip, error) {
+	for i := range b.Clips {
+		if b.Clips[i].ID == id {
+			return &b.Clips[i], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (b *ReviewBatch) SpeciesSet() map[string]struct{} {
+	result := make(map[string]struct{}, len(b.AllowedSpeciesCodes))
+	for _, code := range b.AllowedSpeciesCodes {
+		result[code] = struct{}{}
+	}
+	return result
 }

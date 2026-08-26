@@ -1,27 +1,55 @@
 package domain
 
-import "fmt"
+import "errors"
 
 var (
-	ErrSealed          = fmt.Errorf("发布批次已封存，拒绝写入")
-	ErrInvalidState    = fmt.Errorf("当前状态不允许此操作")
-	ErrVersionConflict = fmt.Errorf("版本冲突")
-	ErrNotFound        = fmt.Errorf("对象不存在")
-	ErrForbidden       = fmt.Errorf("角色无权执行此操作")
+	ErrNotFound        = errors.New("对象不存在")
+	ErrValidation      = errors.New("输入校验失败")
+	ErrVersionConflict = errors.New("版本冲突")
+	ErrStateConflict   = errors.New("状态冲突")
+	ErrForbidden       = errors.New("无权执行该操作")
+	ErrAlreadyReleased = errors.New("批次已经封存")
+	ErrTaskOwner       = errors.New("返标任务不属于当前标注员")
+	ErrTaskRound       = errors.New("返标轮次不匹配")
+	ErrTaskClosed      = errors.New("返标任务已经关闭")
+	ErrIntegrity       = errors.New("发布清单完整性异常")
 )
 
-type ValidationError struct {
+type RuleError struct {
+	Field   string `json:"field,omitempty"`
+	Message string `json:"message"`
+}
+
+type IntegrityError struct {
 	Field   string `json:"field"`
 	Message string `json:"message"`
 }
 
-func (e ValidationError) Error() string {
-	if e.Field == "" {
-		return e.Message
-	}
-	return e.Field + ": " + e.Message
-}
+func (e *IntegrityError) Error() string { return e.Message }
+func (e *IntegrityError) Unwrap() error { return ErrIntegrity }
+
+func (e *RuleError) Error() string { return e.Message }
 
 func Invalid(field, message string) error {
-	return ValidationError{Field: field, Message: message}
+	return &RuleError{Field: field, Message: message}
+}
+
+func Integrity(field, message string) error {
+	return &IntegrityError{Field: field, Message: message}
+}
+
+type FieldError struct {
+	Row     int    `json:"row,omitempty"`
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+type ValidationErrors struct {
+	Errors []FieldError `json:"errors"`
+}
+
+func (e *ValidationErrors) Error() string { return ErrValidation.Error() }
+
+func InvalidFields(errors []FieldError) error {
+	return &ValidationErrors{Errors: errors}
 }
