@@ -18,6 +18,13 @@ type pair struct {
 }
 
 func (m Matcher) Match(clipID string, left, right domain.AnnotationSubmission, id func(string) string) []domain.DisputeCase {
+	// 先按稳定标识整理输入，保证上游提交顺序不影响匹配结果。
+	sort.SliceStable(left.Events, func(i, j int) bool {
+		return left.Events[i].ID < left.Events[j].ID
+	})
+	sort.SliceStable(right.Events, func(i, j int) bool {
+		return right.Events[i].ID < right.Events[j].ID
+	})
 	pairs := make([]pair, 0)
 	for li, le := range left.Events {
 		for ri, re := range right.Events {
